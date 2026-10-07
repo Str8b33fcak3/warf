@@ -138,7 +138,7 @@ void NoteTracker::processHop (const PitchDetector::Result& hop, int sampleOffset
 
     // Mixed old/new audio can produce a confidently intermediate semitone. Require two
     // consistent observations for legato changes, including octave jumps. A new or clearly
-    // articulated attack remains single-hop; this adds just one 5ms hop in Fast mode.
+    // articulated attack remains single-hop; this adds one 5ms hop in Performance/Percussive.
     const int requiredHops = settings.fastTracking && noteIsSounding && ! articulated
                                 ? std::max (2, settings.attackHops) : settings.attackHops;
     if (candidateStableHops >= requiredHops)

@@ -2,7 +2,7 @@
 
 Free JUCE 8 VST3 plugin that listens to a **monophonic** audio signal (voice, guitar/bass playing
 single notes, a wind instrument, ...) and converts what it hears into MIDI note on/off events in
-real time. Architecture and build setup are a direct port of [Kerf Lite](https://github.com/dferreiramarques/kerf/tree/main/plugin)'s
+real time. The architecture and build setup are a direct port of [Kerf Lite](https://github.com/dferreiramarques/kerf/tree/main/plugin)'s
 JUCE/CMake project (native GUI, `juce::UnitTest`-based console test runner, Inno Setup installer)
 — no code is shared between the two, but the recipe is deliberately identical so anyone who's set
 one up can set up the other.
@@ -46,10 +46,11 @@ picker) before touching this again.
 ## Architecture
 
 - `src/PitchDetector.{h,cpp}` — real-time monophonic pitch tracker (YIN algorithm). Pushed mono
-  audio accumulates into a ring buffer; every hop (in Stable, a quarter of the analysis window) it reruns YIN
-  over the last full window and reports a frequency + confidence + RMS. Window size (and therefore
-  Stable window: ~46ms / 11.6ms hop at 44.1kHz) scales with the lowest frequency you want to
-  track — see the class comment for the tradeoff.
+  audio accumulates into a ring buffer. Every hop, the detector runs YIN over the analysis window
+  and reports frequency, confidence and RMS. Window size scales with the lowest frequency to
+  track. At 44.1 kHz, Stable uses a roughly 46 ms window and an 11.6 ms hop (a quarter of the
+  window). Performance and Percussive share a shorter window and 5 ms hops. See the class
+  comment for the tradeoff.
 - `src/NoteTracker.{h,cpp}` — turns that stream of pitch estimates into actual MIDI note on/off
   events. Debounces onset jitter (`attackHops` consecutive stable hops before triggering),
   survives brief dropouts without ending a note (`releaseHops` consecutive silent hops before
@@ -64,9 +65,10 @@ picker) before touching this again.
   "read this before building" note above for why there are two paths and what's still unresolved.
 - `src/ParameterLayout.{h,cpp}` — the handful of genuinely host-automatable parameters: Sensitivity
   (a single friendly knob mapped internally onto confidence/tolerance/attack-speed), Gate
-  Threshold, Transpose, MIDI Channel, a Fixed Velocity toggle + value, and Tracking Mode. The MIDI Output Device
-  selection is deliberately *not* one of these (it's a device choice, not something a DAW would
-  automate) - it's persisted separately, as an extra attribute on the saved state's XML.
+  Threshold, Transpose, MIDI Channel, a Fixed Velocity toggle + value, and Tracking Mode.
+  The MIDI Output Device selection is deliberately *not* one of these: it's a device choice,
+  not something a DAW would automate. It is persisted separately as an extra attribute on the
+  saved state's XML.
 - `synth-src/` (`WarfSynth` target) — a small, deliberately unambitious companion instrument: one
   selectable oscillator waveform (`SynthVoice.cpp`'s `renderSample()`) through a `juce::ADSR`, built
   on `juce::Synthesiser`/`SynthesiserVoice` rather than anything from Warf's own engine. A plain
@@ -74,7 +76,8 @@ picker) before touching this again.
   is set to listen to the same port Warf is sending to.
 - `app.html` — a browser PWA with the same detection engine (a direct JS port of
   `PitchDetector.cpp` and `NoteTracker.cpp` — same algorithm, same state machine, kept in sync by
-  hand since there's no shared code between C++ and JS). Two ways to use it:
+  hand since there's no shared code between C++ and JS). Three ways to use it:
+
   - **Live**: captures the microphone via `getUserMedia`/`ScriptProcessorNode`, runs YIN pitch
     tracking in the browser, and sends the resulting MIDI notes to a Web MIDI output port.
     Chrome/Edge only (Web MIDI isn't supported in Firefox or Safari); needs a virtual MIDI port
@@ -110,12 +113,14 @@ picker) before touching this again.
 ## Build (VST3, Debug)
 
 From a shell where `cmake` and `cl` are both reachable (a Developer Command Prompt, or full paths):
-```
+
+```bat
 cmake -B build -G "Visual Studio 16 2019" -A x64
 cmake --build build --config Debug --target Warf_VST3
 cmake --build build --config Debug --target WarfSynth_VST3
 ```
-First configure clones JUCE 8.0.15 via FetchContent — takes a while, needs network access.
+
+The first configuration clones JUCE 8.0.15 via FetchContent — takes a while, needs network access.
 `COPY_PLUGIN_AFTER_BUILD` is on for both targets, so a successful build also installs to
 `C:\Program Files\Common Files\VST3\Warf (Beta).vst3` and `...\Warf Synth (Beta).vst3` automatically
 — close any host that has either one loaded first, or the copy step fails with "Permission denied"
@@ -123,10 +128,11 @@ First configure clones JUCE 8.0.15 via FetchContent — takes a while, needs net
 
 ## Building the desktop app (Tauri)
 
-```
+```sh
 npm install
 npm run tauri build
 ```
+
 Output lands in `src-tauri/target/release/bundle/` (an NSIS `-setup.exe` and an `.msi`, same as
 Kerf's own desktop app produces) - copy whichever you're distributing into `downloads/`.
 
@@ -135,11 +141,13 @@ Kerf's own desktop app produces) - copy whichever you're distributing into `down
 Build Release for both plugins first, then compile the Inno Setup script - it bundles both into
 one installer, with Warf Synth as an optional, deselectable `[Components]` entry (Warf itself is
 `Flags: fixed`, always installed):
-```
+
+```bat
 cmake --build build --config Release --target Warf_VST3
 cmake --build build --config Release --target WarfSynth_VST3
 "C:\Users\<you>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\Warf.iss
 ```
+
 Output lands in `downloads/Warf_<version>_Beta_VST3_x64-setup.exe`.
 
 ## Voice performance tracking (VST3)
@@ -147,14 +155,14 @@ Output lands in `downloads/Warf_<version>_Beta_VST3_x64-setup.exe`.
 **Tracking Mode** offers **Stable**, **Performance**, and **Percussive**. Start melodic microphone
 use with **Performance / Sensitivity 0.8 / Gate -40 dB**, setting the gate above idle noise and
 below your quietest intended vowel. Use **Percussive** for short rhythmic triggers: it preserves
-the previous Fast mode. Stable remains the original conservative/default behavior.
+the previous Fast mode. Stable preserves the original conservative behavior and remains the default.
 
 At 48 kHz, with the default 60 Hz floor:
 
 | Setting | Stable | Performance | Percussive (former Fast) |
 | --- | --- | --- | --- |
-| Analysis window | 2048 / 42.67 ms | 1604 / 33.42 ms | 1604 / 33.42 ms |
-| Hop | 512 / 10.67 ms | 240 / 5 ms | 240 / 5 ms |
+| Analysis window | 2048 samples / 42.67 ms | 1604 samples / 33.42 ms | 1604 samples / 33.42 ms |
+| Hop | 512 samples / 10.67 ms | 240 samples / 5 ms | 240 samples / 5 ms |
 | New-note attack | 4 hops below 0.5 Sensitivity; otherwise 2 | 1 hop | 1 hop |
 | Legato confirmation | Same as attack | 2 consistent hops | 2 consistent hops |
 | Quiet release | 4 unvoiced hops | 8 consecutive quiet hops (~40 ms) | 3 unvoiced hops (~15 ms) |
@@ -178,14 +186,14 @@ low-pitch recovery. Continuous silence therefore does not wait the full 75 ms. T
 hop-count timings; audio alignment, gate level and detector confidence affect physical gap length.
 An exactly 40 ms quiet gap can reach the intentional release boundary.
 
-Both faster modes retain the previous Fast detector, low-frequency range, single-hop initial
+Performance and Percussive share the same detector, low-frequency range, single-hop initial
 attacks, 15-cent semitone hysteresis, and two consistent legato observations within 30 cents.
 They use recent-hop RMS for the gate and retain audio history when changing modes. Pending
 articulation and timing counters are cleared on a mode change without ending the sounding note.
 There is no additional pitch-detector confirmation delay.
 
-The previous Fast mode's aggressive 15 ms release is useful for rhythmic triggering, but can
-cut melodic notes during "da da da" consonants. Percussive deliberately keeps that behavior.
+Percussive's aggressive 15 ms release is useful for rhythmic triggering but can cut melodic
+notes during "da da da" consonants.
 Performance trades a longer held tail for fewer audible gaps. Noise-only syllables can merge;
 use Percussive when every short interruption should separate triggers. A synth may still audibly
 restart its envelope on an adjacent off/on pair; Warf avoids a MIDI dead zone but cannot control
@@ -204,8 +212,8 @@ gate can turn quiet vowels into release/articulation cues. Routing, direct MIDI 
 channel, velocity controls and dry audio retain their existing paths.
 
 State compatibility: projects without Tracking Mode still restore Stable. Unversioned old
-Fast=1 states migrate to Percussive=2. Versioned new states preserve all three choices. The
-parameter ID is unchanged; normalised endpoints remain Stable=0 and Percussive=1, preserving
+`Fast=1` states migrate to `Percussive=2`. New versioned states preserve all three choices. The
+parameter ID is unchanged; normalised endpoints remain `Stable=0` and `Percussive=1`, preserving
 old endpoint automation. Performance occupies the middle. Saving records a mode-state version
 so Performance is never mistaken for legacy Fast on reload. Existing saved Fast projects must
 be switched to Performance explicitly for melodic use.
@@ -226,7 +234,8 @@ The VST3 bundle is `Warf Beta.vst3`; its displayed plugin name remains `Warf (Be
 `PitchDetector` (accuracy against known-frequency sine waves), `NoteTracker` (the onset/offset
 debounce state machine), and `SynthVoice` (waveform range, envelope on/off/tail-off behaviour) —
 independent of any host:
-```
+
+```bat
 cmake --build build --config Debug --target WarfTests
 build/WarfTests_artefacts/Debug/WarfTests.exe
 ```
@@ -234,11 +243,11 @@ build/WarfTests_artefacts/Debug/WarfTests.exe
 ## Status
 
 The original baseline passed 35 assertions: `PitchDetector` accuracy, `NoteTracker`'s onset/offset state
-machine, and `SynthVoice`'s waveform/envelope behaviour. The Fast-mode additions extend these
-with state migration, synthetic audio-to-MIDI timing, short-note/legato tracking, boundary jitter,
-dropouts, candidate recovery and false-trigger checks. `Warf_VST3`, `WarfSynth_VST3`, and
-`app.html` build/render cleanly in both Debug and Release, and the Tauri desktop app builds clean
-too (`npm run tauri build`, both the `.msi` and NSIS `.exe` bundles) - the Release/bundle builds are
+machine, and `SynthVoice`'s waveform/envelope behaviour. The Performance and Percussive tracking
+tests extend this coverage with state migration, synthetic audio-to-MIDI timing, short-note and
+legato tracking, boundary jitter, dropouts, candidate recovery and false-trigger checks.
+`Warf_VST3` and `WarfSynth_VST3` build cleanly in both Debug and Release. `app.html` renders
+correctly, and the Tauri desktop app also builds successfully (`npm run tauri build`, both the `.msi` and NSIS `.exe` bundles) - the Release/bundle builds are
 what everything in `downloads/` was built from. Confirmed via a real Studio One 5 install (checking
 `Plugins-en.settings` directly, each time this rework changed) that Warf registers as
 `category="AudioEffect"` - a normal audio-effect insert, as intended - and isn't blacklisted; also

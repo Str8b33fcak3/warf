@@ -18,9 +18,9 @@
 //  - voiced, a note IS sounding, new pitch stably lands on a DIFFERENT note for `attackHops`
 //    hops: retrigger (note-off then note-on) - this is what lets a legato phrase produce separate
 //    MIDI notes without a silence gap between them.
-// Fast opts into single-hop attacks with a 15-cent boundary hysteresis and two consistent observations
-// for legato changes. One ambiguous candidate hop can be bridged without counting it.
-// Percussive retains Fast's short release and two-quiet-hop articulation. Performance holds
+// Performance and Percussive use single-hop attacks with 15-cent boundary hysteresis and two
+// consistent observations for legato changes. One ambiguous candidate hop can be bridged
+// without counting it. Percussive uses a short release and two-quiet-hop articulation. Performance holds
 // the old note through brief dropouts, latches qualified quiet articulation until pitch returns,
 // and separates consecutive quiet release from the bounded unvoiced recovery timeout.
 // Confidence-only gaps do not arm articulation. Full-window RMS still drives velocity.
@@ -47,9 +47,9 @@ public:
     // Sets the settings and clears all tracking state - call once from prepareToPlay.
     void prepare (const Settings& newSettings);
 
-    // Updates settings without touching tracking state (currently-sounding note, attack/release
-    // counters) - call every block so host automation of e.g. transpose or the gate takes effect
-    // immediately without cutting the note being tracked.
+    // Updates settings while retaining the sounding note. A mode change clears pending
+    // candidates, articulation and timing counters. Call every block so host automation of
+    // e.g. transpose or the gate takes effect immediately without cutting the tracked note.
     void setLiveSettings (const Settings& newSettings);
 
     // Called once per PitchDetector hop. Appends any resulting note-on/off messages to `midiOut`,

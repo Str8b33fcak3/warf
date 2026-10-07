@@ -81,7 +81,7 @@ public:
     {
         constexpr double sampleRate = 44100.0;
 
-        beginTest ("Percussive retains low-frequency accuracy at 44.1, 48 and 96 kHz");
+        beginTest ("Performance/Percussive detector retains low-frequency accuracy at 44.1, 48 and 96 kHz");
         for (const double rate : { 44100.0, 48000.0, 96000.0 })
             for (const double frequency : { 60.0, 82.4069, 110.0, 220.0, 440.0, 1000.0 })
             {
@@ -99,7 +99,7 @@ public:
                         juce::String (rate) + " Hz sample rate, tone " + juce::String (frequency));
             }
 
-        beginTest ("Percussive live mode switch retains history and callback sample offsets");
+        beginTest ("Performance/Percussive detector switch retains history and callback sample offsets");
         {
             PitchDetector detector;
             detector.prepare (48000.0);
@@ -142,11 +142,11 @@ public:
                 expectEquals (fast.front().note, (int) std::lround (MidiNoteUtils::midiNoteFromFrequency (frequency)));
                 const int fastLatency = fast.front().sample - onset;
                 const int stableLatency = stable.front().sample - onset;
-                expect (fastLatency + 240 <= stableLatency, "Fast should save at least 5ms");
+                expect (fastLatency + 240 <= stableLatency, "Performance/Percussive should save at least 5ms");
                 minFast = std::min (minFast, fastLatency); maxFast = std::max (maxFast, fastLatency);
                 minStable = std::min (minStable, stableLatency); maxStable = std::max (maxStable, stableLatency);
             }
-            logMessage ("Tone " + juce::String (frequency) + " Hz: Fast " + juce::String (minFast / 48.0, 2)
+            logMessage ("Tone " + juce::String (frequency) + " Hz: Performance/Percussive " + juce::String (minFast / 48.0, 2)
                         + ".." + juce::String (maxFast / 48.0, 2) + " ms; Stable "
                         + juce::String (minStable / 48.0, 2) + ".." + juce::String (maxStable / 48.0, 2) + " ms");
         }

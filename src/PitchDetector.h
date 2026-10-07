@@ -11,9 +11,10 @@
 //
 // `windowSize` (and therefore latency and CPU cost) is derived from `minFrequencyHz`: tracking
 // lower notes needs a longer window to see at least two full periods. At the default 60Hz floor
-// and a 44.1kHz sample rate Stable uses a 46ms window / 11.6ms hop. Fast uses an unpadded
-// two-period window (~33ms at 60Hz) and 5ms hops; no FFT requires power-of-two padding.
-// Fast also anchors YIN comparisons in the newest half-window to favour recent audio.
+// and a 44.1kHz sample rate, Stable uses a 46ms window / 11.6ms hop. Performance and Percussive
+// share an unpadded two-period window (~33ms at 60Hz) and 5ms hops; this implementation uses
+// no FFT and does not require power-of-two padding. Both modes anchor YIN comparisons in the
+// newest half-window to favour recent audio.
 class PitchDetector
 {
 public:
@@ -28,7 +29,8 @@ public:
 
     void prepare (double sampleRate, double minFrequencyHz = 60.0);
 
-    // Live switch: buffers/history are retained, with no allocation or warm-up reset.
+    // Selects the shared Performance/Percussive detector configuration when true, Stable
+    // when false. Buffers/history are retained, with no allocation or warm-up reset.
     void setFastTracking (bool fast) { fastTracking = fast; }
     int getHopSize() const { return fastTracking ? fastHopSize : hopSize; }
     int getWindowSize() const { return fastTracking ? fastWindowSize : windowSize; }

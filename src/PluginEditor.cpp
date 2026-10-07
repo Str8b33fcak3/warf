@@ -46,7 +46,7 @@ WarfAudioProcessorEditor::WarfAudioProcessorEditor (WarfAudioProcessor& p)
     refreshMidiOutputDeviceList();
 
     trackingModeBox.addItemList ({ "Stable", "Performance", "Percussive" }, 1);
-    trackingModeBox.setTooltip ("Stable: original tracking. Performance: fast attacks, melodic gap hold. Percussive: former Fast, short releases and rhythmic retriggers.");
+    trackingModeBox.setTooltip ("Stable: original tracking. Performance: fast attacks, melodic gap hold. Percussive: short releases and rhythmic retriggers.");
     addAndMakeVisible (trackingModeBox);
     addAndMakeVisible (trackingModeLabel);
     configureSlider (sensitivitySlider, *this);
