@@ -46,9 +46,9 @@ picker) before touching this again.
 ## Architecture
 
 - `src/PitchDetector.{h,cpp}` — real-time monophonic pitch tracker (YIN algorithm). Pushed mono
-  audio accumulates into a ring buffer; every hop (a quarter of the analysis window) it reruns YIN
+  audio accumulates into a ring buffer; every hop (in Stable, a quarter of the analysis window) it reruns YIN
   over the last full window and reports a frequency + confidence + RMS. Window size (and therefore
-  latency: ~46ms/23ms hop by default at 44.1kHz) scales with the lowest frequency you want to
+  Stable window: ~46ms / 11.6ms hop at 44.1kHz) scales with the lowest frequency you want to
   track — see the class comment for the tradeoff.
 - `src/NoteTracker.{h,cpp}` — turns that stream of pitch estimates into actual MIDI note on/off
   events. Debounces onset jitter (`attackHops` consecutive stable hops before triggering),
@@ -64,7 +64,7 @@ picker) before touching this again.
   "read this before building" note above for why there are two paths and what's still unresolved.
 - `src/ParameterLayout.{h,cpp}` — the handful of genuinely host-automatable parameters: Sensitivity
   (a single friendly knob mapped internally onto confidence/tolerance/attack-speed), Gate
-  Threshold, Transpose, MIDI Channel, and a Fixed Velocity toggle + value. The MIDI Output Device
+  Threshold, Transpose, MIDI Channel, a Fixed Velocity toggle + value, and Tracking Mode. The MIDI Output Device
   selection is deliberately *not* one of these (it's a device choice, not something a DAW would
   automate) - it's persisted separately, as an extra attribute on the saved state's XML.
 - `synth-src/` (`WarfSynth` target) — a small, deliberately unambitious companion instrument: one
@@ -142,6 +142,84 @@ cmake --build build --config Release --target WarfSynth_VST3
 ```
 Output lands in `downloads/Warf_<version>_Beta_VST3_x64-setup.exe`.
 
+## Voice performance tracking (VST3)
+
+**Tracking Mode** offers **Stable**, **Performance**, and **Percussive**. Start melodic microphone
+use with **Performance / Sensitivity 0.8 / Gate -40 dB**, setting the gate above idle noise and
+below your quietest intended vowel. Use **Percussive** for short rhythmic triggers: it preserves
+the previous Fast mode. Stable remains the original conservative/default behavior.
+
+At 48 kHz, with the default 60 Hz floor:
+
+| Setting | Stable | Performance | Percussive (former Fast) |
+| --- | --- | --- | --- |
+| Analysis window | 2048 / 42.67 ms | 1604 / 33.42 ms | 1604 / 33.42 ms |
+| Hop | 512 / 10.67 ms | 240 / 5 ms | 240 / 5 ms |
+| New-note attack | 4 hops below 0.5 Sensitivity; otherwise 2 | 1 hop | 1 hop |
+| Legato confirmation | Same as attack | 2 consistent hops | 2 consistent hops |
+| Quiet release | 4 unvoiced hops | 8 consecutive quiet hops (~40 ms) | 3 unvoiced hops (~15 ms) |
+| Above-gate pitch-loss limit | Same as release | 15 unvoiced hops (~75 ms) | Same as release |
+| Same-pitch articulation | After full release | 3 quiet hops arm a deferred retrigger | 2 quiet hops re-arm immediately |
+| Confidence | 0.95 down to 0.75 | Same mapping, floored at 0.85 | Same as Performance |
+| Pitch-centre tolerance | 20–50 cents | 20–40 cents | 20–40 cents |
+
+Performance separates articulation from ending a note. During a brief consonant, the old MIDI
+note remains on. A quiet closure lasting at least three observations arms a pending same-pitch
+articulation, which survives noisy consonant/pitch-recovery observations. When reliable pitch
+returns, note-off and note-on are emitted at the **same sample offset**, with off first. There is
+no deliberately inserted MIDI gap. A different returning pitch still needs two consistent
+observations. A confidence-only dip does not force same-note articulation; very short quiet
+closures are merged. Full-window RMS still drives the original velocity curve.
+
+Two release conditions keep this hold bounded: eight consecutive quiet observations indicate a
+true ending, while fifteen consecutive unvoiced observations end even an above-gate noise/breath
+passage. The longer bound allows a 40 ms consonant plus roughly one 33 ms analysis window for
+low-pitch recovery. Continuous silence therefore does not wait the full 75 ms. These are nominal
+hop-count timings; audio alignment, gate level and detector confidence affect physical gap length.
+An exactly 40 ms quiet gap can reach the intentional release boundary.
+
+Both faster modes retain the previous Fast detector, low-frequency range, single-hop initial
+attacks, 15-cent semitone hysteresis, and two consistent legato observations within 30 cents.
+They use recent-hop RMS for the gate and retain audio history when changing modes. Pending
+articulation and timing counters are cleared on a mode change without ending the sounding note.
+There is no additional pitch-detector confirmation delay.
+
+The previous Fast mode's aggressive 15 ms release is useful for rhythmic triggering, but can
+cut melodic notes during "da da da" consonants. Percussive deliberately keeps that behavior.
+Performance trades a longer held tail for fewer audible gaps. Noise-only syllables can merge;
+use Percussive when every short interruption should separate triggers. A synth may still audibly
+restart its envelope on an adjacent off/on pair; Warf avoids a MIDI dead zone but cannot control
+that envelope. Longer breaths or gaps beyond the hold limits still end the note.
+
+Synthetic 48 kHz / 128-sample pipeline tests compare initial onset timestamps directly between
+Performance and Percussive. The original 110/220/440 Hz timing cases measured 8–27 ms versus
+41–59 ms in Stable at Sensitivity 0.8. Initial buffer fill remains 33.42 ms in both faster modes;
+these are engine measurements, not DAW/device or recorded-human-voice latency claims.
+
+For microphone checks, compare "da da da", "ta", "ka", "pa", breath interruptions, sustained
+vowels with vibrato, legato scales/octaves, and deliberate stops in your low and high registers.
+Try Performance at Sensitivity 0.8, then 0.6 for narrower tolerance. Compare Percussive on the
+same phrase and on fast hi-hat/drum patterns. Keep the same gate for the comparison; too high a
+gate can turn quiet vowels into release/articulation cues. Routing, direct MIDI output, transpose,
+channel, velocity controls and dry audio retain their existing paths.
+
+State compatibility: projects without Tracking Mode still restore Stable. Unversioned old
+Fast=1 states migrate to Percussive=2. Versioned new states preserve all three choices. The
+parameter ID is unchanged; normalised endpoints remain Stable=0 and Percussive=1, preserving
+old endpoint automation. Performance occupies the middle. Saving records a mode-state version
+so Performance is never mistaken for legacy Fast on reload. Existing saved Fast projects must
+be switched to Performance explicitly for melodic use.
+
+Linux build/install (close or unload Warf first if your host keeps plugin binaries mapped):
+
+```sh
+cmake --build build --target WarfTests Warf_VST3 -j 4
+build/WarfTests_artefacts/Release/WarfTests
+```
+
+Keep `PRODUCT_NAME "Warf Beta"` in CMake: that is the existing Linux build naming fix.
+The VST3 bundle is `Warf Beta.vst3`; its displayed plugin name remains `Warf (Beta)`.
+
 ## Tests (no DAW needed)
 
 `WarfTests` is a standalone console app running the engine's `juce::UnitTest` suite —
@@ -155,8 +233,10 @@ build/WarfTests_artefacts/Debug/WarfTests.exe
 
 ## Status
 
-`WarfTests` passes (35/35 assertions: `PitchDetector` accuracy, `NoteTracker`'s onset/offset state
-machine, and `SynthVoice`'s waveform/envelope behaviour). `Warf_VST3`, `WarfSynth_VST3`, and
+The original baseline passed 35 assertions: `PitchDetector` accuracy, `NoteTracker`'s onset/offset state
+machine, and `SynthVoice`'s waveform/envelope behaviour. The Fast-mode additions extend these
+with state migration, synthetic audio-to-MIDI timing, short-note/legato tracking, boundary jitter,
+dropouts, candidate recovery and false-trigger checks. `Warf_VST3`, `WarfSynth_VST3`, and
 `app.html` build/render cleanly in both Debug and Release, and the Tauri desktop app builds clean
 too (`npm run tauri build`, both the `.msi` and NSIS `.exe` bundles) - the Release/bundle builds are
 what everything in `downloads/` was built from. Confirmed via a real Studio One 5 install (checking
